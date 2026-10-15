@@ -15,4 +15,5 @@ public record UpdateProjectRequest(
         LocalDate predictedEndDate,
         LocalDate startDate,
         Long managerId,
-        List<Long> dependsOn) {}
+        List<Long> dependsOn,
+        Double plannedBudget) {}

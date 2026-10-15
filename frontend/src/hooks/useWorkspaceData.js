@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getProjectChain, getProjects } from '../services/projectApi'
 import { getAssignments } from '../services/assignmentApi'
 import { getMilestones } from '../services/milestoneApi'
+import { getExpenses } from '../services/expenseApi'
 import { getUsers } from '../services/userApi'
 import { HOURS_PER_WEEK } from '../services/hours'
 
@@ -12,7 +13,8 @@ import { HOURS_PER_WEEK } from '../services/hours'
  *   users:            people this user may see, employees with allocatedHours
  *   projects:         active and completed projects, each with team + milestones, plus
  *                     chain ({ upstream, downstream }) and upstreamMilestones (milestones in the
- *                     projects it directly depends on, which its milestones may depend on)
+ *                     projects it directly depends on, which its milestones may depend on),
+ *                     and, when the API sent a budget (admins and the manager), its expenses
  *   archivedProjects: archived projects, same shape
  *   archivedCount, capacity: extra figures for the dashboard
  *
@@ -41,16 +43,17 @@ export async function loadWorkspace(user) {
   const [allProjects, users] = await Promise.all([getProjects(), getUsers()])
 
   const detailed = await Promise.all(allProjects.map(async (project) => {
-    const [team, milestones, chain] = await Promise.all([
+    const [team, milestones, chain, expenses] = await Promise.all([
       getAssignments(project.id, { includeInactive: true }), // the detail page shows past members too
       getMilestones(project.id),
       getProjectChain(project.id),
+      project.budget ? getExpenses(project.id) : null,
     ])
     const upstreamMilestones = chain.upstream.filter((p) => p.direct).flatMap((p) => p.milestones)
       .map((m) => ({ ...m, progress: m.progressPercent, dependsOn: [] }))
     // The pages call a milestone's percentage `progress`; the API calls it `progressPercent`.
     return {
-      ...project, team, chain, upstreamMilestones,
+      ...project, team, chain, upstreamMilestones, expenses,
       milestones: milestones.map((m) => ({ ...m, progress: m.progressPercent })),
     }
   }))
@@ -82,7 +85,8 @@ function capacityOf(user, users) {
     people: people.length,
     total: people.length * HOURS_PER_WEEK,
     allocated: hours.reduce((sum, h) => sum + h, 0),
-    fullyBooked: hours.filter((h) => h >= HOURS_PER_WEEK).length,
+    fullyBooked: hours.filter((h) => h === HOURS_PER_WEEK).length,
+    overAllocated: hours.filter((h) => h > HOURS_PER_WEEK).length,
     unassigned: hours.filter((h) => h === 0).length,
   }
 }

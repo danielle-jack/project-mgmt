@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Field, FormModal, useAction } from './ui'
 import { getProjectOptions } from '../services/projectApi'
-import { formatDate } from '../utils/format'
+import { CURRENCY, formatDate, todayISO } from '../utils/format'
 import {
   activeAssignments, allocatedHours, assignableEmployees, createsCycle, editableProjectFields,
-  MILESTONE_STATUS, milestoneConflicts, ROLES, validateAssignment, validateMilestone, WEEK_HOURS,
+  MILESTONE_STATUS, milestoneConflicts, overAllocationWarning, ROLES, validateAssignment, validateMilestone, WEEK_HOURS,
 } from '../utils/rules'
 
 /* -------------------------------------------------------------- project -- */
@@ -13,7 +13,7 @@ import {
 export function ProjectForm({ user, users, project, actions, onClose, onSaved }) {
   const isNew = !project
   const editable = isNew
-    ? ['title', 'description', 'managerId', 'startDate', 'predictedEndDate']
+    ? ['title', 'description', 'managerId', 'startDate', 'predictedEndDate', 'plannedBudget']
     : editableProjectFields(user, project)
   const managers = users.filter((u) => u.active && u.role === ROLES.MANAGER)
   const [form, setForm] = useState({
@@ -22,6 +22,7 @@ export function ProjectForm({ user, users, project, actions, onClose, onSaved })
     managerId: project?.managerId ?? '',
     startDate: project?.startDate ?? '',
     predictedEndDate: project?.predictedEndDate ?? '',
+    plannedBudget: project?.plannedBudget || '',
     dependsOn: project?.dependsOn ?? [],
   })
   const { pending, error, setError, run } = useAction()
@@ -44,6 +45,7 @@ export function ProjectForm({ user, users, project, actions, onClose, onSaved })
     const problem = validateProject(form, project)
     if (problem) return setError(problem)
     const patch = Object.fromEntries(editable.map((key) => [key, form[key]]))
+    if ('plannedBudget' in patch) patch.plannedBudget = Number(form.plannedBudget) || 0
     const ok = await run(() => (isNew ? actions.createProject(patch) : actions.updateProject(project.id, patch)))
     if (ok) { onSaved?.(isNew ? `Created ${form.title}.` : 'Project saved.'); onClose() }
   }
@@ -73,6 +75,11 @@ export function ProjectForm({ user, users, project, actions, onClose, onSaved })
       <Field label="Predicted end date">
         <input type="date" value={form.predictedEndDate} onChange={set('predictedEndDate')} disabled={locked('predictedEndDate')} />
       </Field>
+      <Field label={`Planned budget (${CURRENCY})`} wide
+        hint="Everything the project may spend: team labour (hours × hourly rate) plus expenses. Leave empty for no budget.">
+        <input type="number" min="0" step="100" value={form.plannedBudget} onChange={set('plannedBudget')}
+          disabled={locked('plannedBudget')} placeholder="e.g. 120000" />
+      </Field>
       {pickDeps && (
         <fieldset className="form-wide dependency-picker">
           <legend>Depends on projects</legend>
@@ -96,6 +103,7 @@ function validateProject(form, project) {
   if (!form.managerId) return 'Choose a manager. Every project needs exactly one.'
   if (!form.startDate || !form.predictedEndDate) return 'Enter a start date and a predicted end date.'
   if (form.predictedEndDate < form.startDate) return 'The predicted end date must be on or after the start date.'
+  if (form.plannedBudget !== '' && !(Number(form.plannedBudget) >= 0)) return 'The planned budget must be 0 or more.'
   if (!project) return ''
   const outside = activeAssignments(project)
     .filter((a) => a.startDate < form.startDate || a.endDate > form.predictedEndDate)
@@ -122,19 +130,22 @@ export function AssignmentForm({ user, data, project, assignment, actions, onClo
     startDate: assignment?.startDate ?? project.startDate,
     endDate: assignment?.endDate ?? project.predictedEndDate,
   })
+  const [confirmOver, setConfirmOver] = useState(false)
   const { pending, error, setError, run } = useAction()
-  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const set = (key) => (e) => { setForm({ ...form, [key]: e.target.value }); setConfirmOver(false) }
 
   const employee = data.users.find((u) => String(u.id) === String(form.employeeId)) // <select> values are strings
     ?? (assignment && { id: assignment.employeeId, name: assignment.employeeName })
   const free = employee
     ? WEEK_HOURS - allocatedHours(employee, data.projects, { excludeAssignmentId: assignment?.id })
     : null
+  const overWarning = overAllocationWarning(form, { employee, projects: data.projects, assignmentId: assignment?.id })
 
   async function submit() {
     const problem = validateAssignment(form, { project, employee, projects: data.projects, assignmentId: assignment?.id })
     if (problem) return setError(problem)
-    const payload = { ...form, hoursPerWeek: Number(form.hoursPerWeek) }
+    if (overWarning && !confirmOver) return setError('Tick the box to confirm the over-allocation, or lower the hours.')
+    const payload = { ...form, hoursPerWeek: Number(form.hoursPerWeek), allowOverAllocation: Boolean(overWarning) }
     const ok = await run(() => (isNew
       ? actions.createAssignment(project.id, payload)
       : actions.updateAssignment(assignment.id, payload)))
@@ -152,13 +163,15 @@ export function AssignmentForm({ user, data, project, assignment, actions, onClo
             <option value="">Choose an employee</option>
             {options.map((u) => {
               const left = WEEK_HOURS - allocatedHours(u, data.projects)
-              return <option key={u.id} value={u.id} disabled={left <= 0}>{u.name} · {left}h free</option>
+              return <option key={u.id} value={u.id}>{u.name} · {left > 0 ? `${left}h free` : left === 0 ? 'fully booked' : `${-left}h over-allocated`}</option>
             })}
           </select>
         </Field>
       )}
       <Field label="Hours per week" wide
-        hint={free != null ? `${employee.name} has ${free}h of ${WEEK_HOURS}h free each week.` : `Up to ${WEEK_HOURS}h across all projects.`}>
+        hint={free != null
+          ? (free >= 0 ? `${employee.name} has ${free}h of ${WEEK_HOURS}h free each week.` : `${employee.name} is already ${-free}h over the ${WEEK_HOURS}h week.`)
+          : `A normal week is ${WEEK_HOURS}h across all projects.`}>
         <input type="number" min="1" max={WEEK_HOURS} step="0.5" value={form.hoursPerWeek} onChange={set('hoursPerWeek')} />
       </Field>
       <Field label="From">
@@ -166,6 +179,49 @@ export function AssignmentForm({ user, data, project, assignment, actions, onClo
       </Field>
       <Field label="Until">
         <input type="date" value={form.endDate} min={project.startDate} max={project.predictedEndDate} onChange={set('endDate')} />
+      </Field>
+      {overWarning && (
+        <div className="inline-warning form-wide">
+          <span>{overWarning}</span>
+          <label className="check-row">
+            <input type="checkbox" checked={confirmOver} onChange={(e) => setConfirmOver(e.target.checked)} />
+            <span>Assign anyway</span>
+          </label>
+        </div>
+      )}
+    </FormModal>
+  )
+}
+
+/* -------------------------------------------------------------- expense -- */
+
+/** Log non-labour spending (licences, hardware, travel...) against a project's budget. */
+export function ExpenseForm({ project, actions, onClose, onSaved }) {
+  const [form, setForm] = useState({ description: '', amount: '', spentOn: todayISO() })
+  const { pending, error, setError, run } = useAction()
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+
+  async function submit() {
+    const amount = Number(form.amount)
+    if (!form.description.trim()) return setError('Say what the money was spent on.')
+    if (!Number.isFinite(amount) || amount <= 0) return setError('Enter an amount more than 0.')
+    if (!form.spentOn) return setError('Enter the date it was spent.')
+    if (form.spentOn > todayISO()) return setError('Expenses can’t be dated in the future.')
+    const ok = await run(() => actions.createExpense(project.id, { ...form, description: form.description.trim(), amount }))
+    if (ok) { onSaved?.('Expense logged.'); onClose() }
+  }
+
+  return (
+    <FormModal title="Log expense" subtitle={`Counts toward ${project.title}’s budget.`} onClose={onClose}
+      onSubmit={submit} submitLabel="Log expense" pending={pending} error={error}>
+      <Field label="What was it for?" wide>
+        <input value={form.description} onChange={set('description')} maxLength={200} placeholder="e.g. Design tool licences" />
+      </Field>
+      <Field label={`Amount (${CURRENCY})`}>
+        <input type="number" min="0.01" step="0.01" value={form.amount} onChange={set('amount')} />
+      </Field>
+      <Field label="Date spent">
+        <input type="date" value={form.spentOn} max={todayISO()} onChange={set('spentOn')} />
       </Field>
     </FormModal>
   )

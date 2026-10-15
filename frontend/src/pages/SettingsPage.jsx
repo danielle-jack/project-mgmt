@@ -86,7 +86,7 @@ export default function SettingsPage({ user, data, actions }) {
             <div className="panel-header"><div><h2>Planning rules</h2><p>Apply to everyone in the organization</p></div></div>
             <dl className="facts">
               <div><dt>Work week</dt><dd>{WEEK_HOURS}h ({DAY_HOURS}h × {WORK_DAYS} days)</dd></div>
-              <div><dt>Weekly limit</dt><dd>{WEEK_HOURS}h per person, across all projects</dd></div>
+              <div><dt>Over-allocation</dt><dd>Over {WEEK_HOURS}h a week across projects needs the manager to confirm, and is flagged</dd></div>
               <div><dt>Team members</dt><dd>{POLICY.managersAssignOnlyOwnEmployees ? 'Managers assign their own reports' : 'Managers assign any employee'}</dd></div>
               <div><dt>Dependencies</dt><dd>{POLICY.dependencyGate === 'START' ? 'Must be complete before a milestone starts' : 'Must be complete before a milestone is completed'}</dd></div>
               <div><dt>Project dependencies</dt><dd>A project is completed only after the projects it depends on</dd></div>

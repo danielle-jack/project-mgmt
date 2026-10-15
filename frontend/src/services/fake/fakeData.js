@@ -18,28 +18,37 @@ export function createSeedData() {
     { id: 1, name: 'Avery Admin', email: 'avery@example.com', role: 'ADMIN', managerId: null },
     { id: 2, name: 'Morgan Lee', email: 'morgan@example.com', role: 'MANAGER', managerId: null },
     { id: 3, name: 'Sam Patel', email: 'sam@example.com', role: 'MANAGER', managerId: null },
-    { id: 4, name: 'Jordan Kim', email: 'jordan@example.com', role: 'EMPLOYEE', managerId: 2 },
-    { id: 5, name: 'Riley Chen', email: 'riley@example.com', role: 'EMPLOYEE', managerId: 2 },
-    { id: 6, name: 'Casey Brooks', email: 'casey@example.com', role: 'EMPLOYEE', managerId: 3 },
-    { id: 7, name: 'Taylor Nguyen', email: 'taylor@example.com', role: 'EMPLOYEE', managerId: 3 },
-    { id: 8, name: 'Drew Garcia', email: 'drew@example.com', role: 'EMPLOYEE', managerId: 2, active: false,
-      deactivationReason: 'Left the company' },
-  ].map((u) => ({ active: true, deactivationReason: null, photo: null, createdAt: created, updatedAt: created, ...u }))
+    { id: 4, name: 'Jordan Kim', email: 'jordan@example.com', role: 'EMPLOYEE', managerId: 2, hourlyRate: 85 },
+    { id: 5, name: 'Riley Chen', email: 'riley@example.com', role: 'EMPLOYEE', managerId: 2, hourlyRate: 70 },
+    { id: 6, name: 'Casey Brooks', email: 'casey@example.com', role: 'EMPLOYEE', managerId: 3, hourlyRate: 95 },
+    { id: 7, name: 'Taylor Nguyen', email: 'taylor@example.com', role: 'EMPLOYEE', managerId: 3, hourlyRate: 60 },
+    { id: 8, name: 'Drew Garcia', email: 'drew@example.com', role: 'EMPLOYEE', managerId: 2, hourlyRate: 65,
+      active: false, deactivationReason: 'Left the company' },
+  ].map((u) => ({
+    active: true, deactivationReason: null, photo: null, hourlyRate: 0, createdAt: created, updatedAt: created, ...u,
+  }))
 
   const projects = [
     {
       id: 1, title: 'Customer Portal Redesign', description: 'New self-service portal.',
       managerId: 2, startDate: '2026-09-07', predictedEndDate: '2026-12-18', status: 'ACTIVE',
       dependsOn: [2], // the portal needs the new warehouse's data
+      plannedBudget: 50000, // forecast to go over: Casey joined part-time
     },
     {
       id: 2, title: 'Data Warehouse Migration', description: 'Move reporting to the new warehouse.',
       managerId: 3, startDate: '2026-10-05', predictedEndDate: '2027-02-26', status: 'ACTIVE',
+      plannedBudget: 140000,
     },
     {
       id: 3, title: 'Mobile App MVP', description: 'First release of the mobile app.',
       managerId: 2, startDate: '2026-06-01', predictedEndDate: '2026-09-25', status: 'COMPLETED',
-      completedAt: '2026-09-25T17:00:00Z',
+      completedAt: '2026-09-25T17:00:00Z', plannedBudget: 35000,
+    },
+    {
+      id: 5, title: 'Security Audit', description: 'Yearly external security review.', // nobody assigned yet
+      managerId: 3, startDate: '2026-10-01', predictedEndDate: '2026-12-31', status: 'ACTIVE',
+      plannedBudget: 20000,
     },
     {
       id: 4, title: 'Legacy CRM Cleanup', description: 'Retire unused CRM modules.',
@@ -48,7 +57,7 @@ export function createSeedData() {
       archiveReason: 'Old CRM switched off',
     },
   ].map((p) => ({
-    completedAt: null, archivedAt: null, archiveReason: null, dependsOn: [],
+    completedAt: null, archivedAt: null, archiveReason: null, dependsOn: [], plannedBudget: 0,
     createdBy: 1, createdAt: created, updatedAt: created, ...p,
   }))
 
@@ -62,6 +71,8 @@ export function createSeedData() {
       active: false, deactivatedAt: '2026-09-25T17:00:00Z', removalReason: 'Project finished' },
     { id: 7, projectId: 4, employeeId: 6, hoursPerWeek: 8, startDate: '2026-03-02', endDate: '2026-06-26',
       active: false, deactivatedAt: '2026-06-26T17:00:00Z', removalReason: 'Project finished' },
+    // Takes Casey to 44h a week, so they show as over-allocated.
+    { id: 8, projectId: 1, employeeId: 6, hoursPerWeek: 12, startDate: '2026-10-12', endDate: '2026-12-18' },
   ].map((a) => ({
     active: true, deactivatedAt: null, removalReason: null, assignedBy: 2, createdAt: created, updatedAt: created, ...a,
   }))
@@ -87,5 +98,14 @@ export function createSeedData() {
     createdAt: created, updatedAt: created, ...m,
   }))
 
-  return { users, projects, assignments, milestones }
+  const expenses = [
+    { id: 1, projectId: 1, amount: 3200, spentOn: '2026-09-15', description: 'Design tool licences' },
+    { id: 2, projectId: 1, amount: 1600, spentOn: '2026-10-02', description: 'Usability testing sessions' },
+    { id: 3, projectId: 1, amount: 450, spentOn: '2026-10-05', description: 'Stock photos',
+      active: false, voidedAt: '2026-10-06T10:00:00Z', voidReason: 'Logged twice' },
+    { id: 4, projectId: 2, amount: 12000, spentOn: '2026-10-06', description: 'Warehouse platform subscription (annual)' },
+    { id: 5, projectId: 3, amount: 2500, spentOn: '2026-07-20', description: 'App store developer accounts' },
+  ].map((e) => ({ active: true, voidedAt: null, voidReason: null, createdBy: 2, createdAt: created, ...e }))
+
+  return { users, projects, assignments, milestones, expenses }
 }

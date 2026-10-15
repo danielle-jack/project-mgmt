@@ -8,7 +8,8 @@
 --   * only admins create users and projects; managers edit only their own projects
 --   * an employee's manager_id must point at an active MANAGER
 --   * a project's manager_id must point at an active MANAGER
---   * an employee's active assignments total at most 40 hours/week
+--   * an employee's active assignments may total more than 40 hours/week only when the
+--     manager confirms it; anyone over 40 is reported as over-allocated
 --   * assignment dates fall within the project's dates
 --   * archived projects (and their assignments and milestones) are read-only
 --   * milestone dependencies contain no cycles
@@ -204,7 +205,33 @@ BEGIN
     END IF;
 END $$;
 
--- 9. Calculated project hours --------------------------------------------------
+-- Cost rates and budgets. Labour cost = hours worked so far x the employee's hourly rate;
+-- it is calculated (see BudgetCalculator.java), never stored.
+ALTER TABLE users    ADD COLUMN IF NOT EXISTS hourly_rate    NUMERIC(8,2)  NOT NULL DEFAULT 0 CHECK (hourly_rate >= 0);
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS planned_budget NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (planned_budget >= 0);
+
+-- 9. Project expenses ----------------------------------------------------------
+-- Non-labour spending (licences, hardware, travel...) logged by the project's manager.
+-- Mistakes are voided with a reason; the row stays.
+
+CREATE TABLE IF NOT EXISTS project_expenses (
+    expense_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id   BIGINT        NOT NULL REFERENCES projects (project_id),
+    amount       NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    spent_on     DATE          NOT NULL,
+    description  VARCHAR(200)  NOT NULL,
+    active       BOOLEAN       NOT NULL DEFAULT TRUE,
+    created_by   BIGINT        NOT NULL REFERENCES users (user_id),
+    voided_at    TIMESTAMPTZ,
+    void_reason  TEXT,
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+
+    CONSTRAINT expenses_voided_at_matches_active CHECK (active = (voided_at IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS project_expenses_project_idx ON project_expenses (project_id);
+
+-- 10. Calculated project hours --------------------------------------------------
 -- Total hours = sum over active assignments of hours_per_week x (workdays / 5),
 -- where workdays are Monday-Friday between the assignment's start and end dates.
 

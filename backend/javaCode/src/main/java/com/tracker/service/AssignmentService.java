@@ -23,7 +23,8 @@ import static com.tracker.service.AuditService.details;
 
 /**
  * Managers assign employees to projects; employees may be on many projects.
- * Total active hours per employee must not exceed 40/week.
+ * Total active hours per employee may go over 40/week only when the manager confirms it
+ * (allowOverAllocation); such employees are reported as over-allocated.
  * Assignment dates must fall within the project's dates.
  * Managers may assign any active employee, not just the ones who report to them.
  */
@@ -71,7 +72,7 @@ public class AssignmentService {
         Project project = access.requireManagedProject(actor, projectId);
         access.requireWritable(project);
 
-        // Lock the employee so two requests can't both squeeze under 40 hours at once.
+        // Lock the employee so two requests can't both squeeze under 40 hours at once unnoticed.
         User employee = users.lockById(Validate.required(req.employeeId(), "Employee"))
                 .orElseThrow(() -> new NotFoundException("User not found."));
         if (employee.getRole() != Role.EMPLOYEE || !employee.isActive()) {
@@ -86,7 +87,7 @@ public class AssignmentService {
                 req.startDate() != null ? req.startDate() : project.getStartDate(),
                 req.endDate() != null ? req.endDate() : project.getPredictedEndDate());
         assignment.setAssignedBy(actor.getId());
-        requireFits(assignment, project, employee);
+        requireFits(assignment, project, employee, Boolean.TRUE.equals(req.allowOverAllocation()));
 
         Assignment saved = assignments.insert(assignment);
         audit.record(actor, "ASSIGN_EMPLOYEE", "ASSIGNMENT", saved.getId(), details(
@@ -95,7 +96,7 @@ public class AssignmentService {
         return AssignmentView.of(saved, employee.getName(), null);
     }
 
-    /** Change hours and/or dates. The same 40-hour and date checks apply. */
+    /** Change hours and/or dates. The same 40-hour warning and date checks apply. */
     public AssignmentView update(User actor, long id, AssignmentRequest req) {
         Assignment assignment = find(id);
         Project project = access.requireManagedProject(actor, assignment.getProjectId());
@@ -106,7 +107,7 @@ public class AssignmentService {
         if (req.hoursPerWeek() != null) assignment.setHoursPerWeek(Validate.hoursPerWeek(req.hoursPerWeek()));
         if (req.startDate() != null) assignment.setStartDate(req.startDate());
         if (req.endDate() != null) assignment.setEndDate(req.endDate());
-        requireFits(assignment, project, employee);
+        requireFits(assignment, project, employee, Boolean.TRUE.equals(req.allowOverAllocation()));
 
         Assignment saved = assignments.update(assignment);
         audit.record(actor, "UPDATE_ASSIGNMENT", "ASSIGNMENT", id, details(
@@ -132,7 +133,7 @@ public class AssignmentService {
         return AssignmentView.of(saved, employeeName(saved), null);
     }
 
-    private void requireFits(Assignment a, Project project, User employee) {
+    private void requireFits(Assignment a, Project project, User employee, boolean allowOverAllocation) {
         Validate.ordered(a.getStartDate(), a.getEndDate(), "The end date");
         if (a.getStartDate().isBefore(project.getStartDate()) || a.getEndDate().isAfter(project.getPredictedEndDate())) {
             throw new BusinessRuleException("Assignment dates must be within the project ("
@@ -140,10 +141,10 @@ public class AssignmentService {
         }
 
         double otherHours = assignments.sumActiveHours(employee.getId(), a.getId());
-        if (otherHours + a.getHoursPerWeek() > WorkWeek.HOURS_PER_WEEK) {
+        if (!allowOverAllocation && otherHours + a.getHoursPerWeek() > WorkWeek.HOURS_PER_WEEK) {
             throw new BusinessRuleException(employee.getName() + " already has " + format(otherHours)
-                    + " hrs/week on other projects, so at most "
-                    + format(WorkWeek.HOURS_PER_WEEK - otherHours) + " more fit.");
+                    + " hrs/week on other projects, so this would make them over-allocated ("
+                    + format(otherHours + a.getHoursPerWeek()) + " hrs/week). Confirm to assign anyway.");
         }
     }
 

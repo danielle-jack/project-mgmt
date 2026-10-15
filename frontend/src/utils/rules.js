@@ -5,9 +5,13 @@
  * rules, because anyone can call the API directly.
  *
  * Data shapes the pages expect (`data` prop):
- *   users:            [{ id, name, email, role, managerId, active, allocatedHours? }]
+ *   users:            [{ id, name, email, role, managerId, active, allocatedHours?, overAllocated, hourlyRate? }]
  *   projects:         [{ id, title, description, managerId, managerName, status: 'ACTIVE' | 'COMPLETED',
- *                        startDate, predictedEndDate, team: [Assignment], milestones: [Milestone] }]
+ *                        startDate, predictedEndDate, team: [Assignment], milestones: [Milestone],
+ *                        plannedBudget, budget?: Budget, expenses?: [Expense] }]
+ *   Budget:           { plannedBudget, labourToDate, expensesToDate, spentToDate, forecastTotal, remaining,
+ *                        percentUsed } — only for admins and the project's manager
+ *   Expense:          { id, amount, spentOn, description, active, voidReason }
  *   archivedProjects: same shape as projects, plus archivedAt
  *   Assignment:       { id, employeeId, employeeName, hoursPerWeek, startDate, endDate, active }
  *   Milestone:        { id, title, startDate, dueDate, status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED',
@@ -35,7 +39,7 @@ export const MILESTONE_STATUS = {
  */
 export const POLICY = {
   // Which project fields a manager may edit on their own projects. Admins can edit all of them.
-  managerEditableFields: ['title', 'description', 'startDate', 'predictedEndDate'],
+  managerEditableFields: ['title', 'description', 'startDate', 'predictedEndDate', 'plannedBudget'],
   // Managers may only assign their own direct reports (false = any active employee).
   managersAssignOnlyOwnEmployees: false,
   // Admins can create and edit milestones as well as managers.
@@ -61,6 +65,8 @@ export const can = {
   // Managers mark projects completed; admins archive them (any unarchived project, e.g. a cancelled one).
   archiveProject: (user, project) => isAdmin(user) && project.status !== 'ARCHIVED',
   manageTeam: (user, project) => isOpen(project) && (isAdmin(user) || managesProject(user, project)),
+  // Log and void expenses: same people who can edit the project.
+  manageExpenses: (user, project) => isOpen(project) && (isAdmin(user) || managesProject(user, project)),
   manageMilestones: (user, project) => isOpen(project)
     && (managesProject(user, project) || (POLICY.adminsManageMilestones && isAdmin(user))),
 }
@@ -68,7 +74,7 @@ export const can = {
 /** The project fields this user may change. */
 export function editableProjectFields(user, project) {
   if (!can.editProject(user, project)) return []
-  if (isAdmin(user)) return ['title', 'description', 'managerId', 'startDate', 'predictedEndDate', 'dependsOn']
+  if (isAdmin(user)) return ['title', 'description', 'managerId', 'startDate', 'predictedEndDate', 'plannedBudget', 'dependsOn']
   return [...POLICY.managerEditableFields, 'dependsOn']
 }
 
@@ -154,7 +160,13 @@ export function employeeAssignments(employeeId, projects) {
     .map((a) => ({ ...a, projectId: project.id, projectTitle: project.title })))
 }
 
-/** Returns an error message, or '' when the assignment is valid. */
+/** True when the employee's booked hours go over the 40-hour week. */
+export const isOverAllocated = (employee, projects) => allocatedHours(employee, projects) > WEEK_HOURS
+
+/**
+ * Returns an error message, or '' when the assignment is valid. Going over 40 hours a week
+ * isn't an error: check overAllocationWarning and ask the manager to confirm instead.
+ */
 export function validateAssignment(form, { project, employee, projects, assignmentId }) {
   const hours = Number(form.hoursPerWeek)
   if (!employee) return 'Choose an employee.'
@@ -168,12 +180,17 @@ export function validateAssignment(form, { project, employee, projects, assignme
   const duplicate = activeAssignments(project)
     .some((a) => a.employeeId === employee.id && a.id !== assignmentId)
   if (duplicate) return `${employee.name} is already on this project. Edit their hours instead.`
-  const others = allocatedHours(employee, projects, { excludeAssignmentId: assignmentId })
-  if (others + hours > WEEK_HOURS) {
-    const left = Math.max(0, WEEK_HOURS - others)
-    return `${employee.name} already has ${others}h a week on other projects. Assign ${left}h or less.`
-  }
   return ''
+}
+
+/** A warning when this assignment would take the employee past 40 hours a week, or ''. */
+export function overAllocationWarning(form, { employee, projects, assignmentId }) {
+  const hours = Number(form.hoursPerWeek)
+  if (!employee || !Number.isFinite(hours) || hours <= 0) return ''
+  const others = allocatedHours(employee, projects, { excludeAssignmentId: assignmentId })
+  if (others + hours <= WEEK_HOURS) return ''
+  return `${employee.name} already has ${others}h a week on other projects, so this makes ${others + hours}h `
+    + `(${others + hours - WEEK_HOURS}h over the ${WEEK_HOURS}h week). They’ll show as over-allocated.`
 }
 
 /* ----------------------------------------------------------- milestones -- */

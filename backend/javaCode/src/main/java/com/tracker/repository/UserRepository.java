@@ -5,7 +5,9 @@ import com.tracker.model.User;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -13,7 +15,7 @@ import java.util.Optional;
  */
 public class UserRepository {
     private static final String COLUMNS =
-            "user_id, name, email, role, manager_id, active, deactivation_reason, photo, created_at, updated_at";
+            "user_id, name, email, role, manager_id, active, deactivation_reason, photo, hourly_rate, created_at, updated_at";
 
     private final Database db;
 
@@ -54,12 +56,12 @@ public class UserRepository {
     /** Saves a new user and fills in its id and timestamps. */
     public User insert(User user, Long createdBy, String passwordHash) {
         return db.one("""
-                INSERT INTO users (name, email, role, manager_id, active, created_by, password_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (name, email, role, manager_id, active, created_by, password_hash, hourly_rate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING\s""" + COLUMNS,
                 UserRepository::map,
                 user.getName(), user.getEmail(), user.getRole(), user.getManagerId(), user.isActive(), createdBy,
-                passwordHash)
+                passwordHash, user.getHourlyRate())
                 .orElseThrow();
     }
 
@@ -77,6 +79,18 @@ public class UserRepository {
     /** Sets or clears (null) the profile photo. */
     public void setPhoto(long id, String photo) {
         db.execute("UPDATE users SET photo = ?, updated_at = now() WHERE user_id = ?", photo, id);
+    }
+
+    public void setHourlyRate(long id, double hourlyRate) {
+        db.execute("UPDATE users SET hourly_rate = ?, updated_at = now() WHERE user_id = ?", hourlyRate, id);
+    }
+
+    /** Hourly rate of every user, for labour cost. */
+    public Map<Long, Double> hourlyRates() {
+        Map<Long, Double> rates = new HashMap<>();
+        db.list("SELECT user_id, hourly_rate FROM users", rs -> Map.entry(rs.getLong(1), rs.getDouble(2)))
+                .forEach(e -> rates.put(e.getKey(), e.getValue()));
+        return rates;
     }
 
     /** True once any admin exists (active or not). Used to allow creating the very first one. */
@@ -104,6 +118,7 @@ public class UserRepository {
         user.setActive(rs.getBoolean("active"));
         user.setDeactivationReason(rs.getString("deactivation_reason"));
         user.setPhoto(rs.getString("photo"));
+        user.setHourlyRate(rs.getDouble("hourly_rate"));
         user.setCreatedAt(Database.instant(rs, "created_at"));
         user.setUpdatedAt(Database.instant(rs, "updated_at"));
         return user;

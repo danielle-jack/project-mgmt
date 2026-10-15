@@ -3,7 +3,7 @@
 // is switched on. Delete this folder when the backend is done.
 
 import { ApiError } from '../errors'
-import { HOURS_PER_WEEK, assignmentTotalHours } from '../hours'
+import { HOURS_PER_WEEK, assignmentTotalHours, labourCost } from '../hours'
 import { createSeedData, DEMO_PASSWORD } from './fakeData'
 
 const db = createSeedData()
@@ -51,6 +51,7 @@ const routes = [
   ['PATCH', /^\/users\/(\d+)\/profile$/, updateProfile],
   ['PATCH', /^\/users\/(\d+)\/password$/, changePassword],
   ['PATCH', /^\/users\/(\d+)\/manager$/, changeManager],
+  ['PATCH', /^\/users\/(\d+)\/rate$/, setHourlyRate],
   ['PUT', /^\/users\/(\d+)\/photo$/, setPhoto],
   ['POST', /^\/users\/(\d+)\/deactivate$/, deactivateUser],
   ['POST', /^\/users\/(\d+)\/reactivate$/, reactivateUser],
@@ -70,6 +71,10 @@ const routes = [
   ['POST', /^\/projects\/(\d+)\/assignments$/, createAssignment],
   ['PATCH', /^\/assignments\/(\d+)$/, updateAssignment],
   ['POST', /^\/assignments\/(\d+)\/deactivate$/, deactivateAssignment],
+
+  ['GET', /^\/projects\/(\d+)\/expenses$/, listExpenses],
+  ['POST', /^\/projects\/(\d+)\/expenses$/, createExpense],
+  ['POST', /^\/expenses\/(\d+)\/void$/, voidExpense],
 
   ['GET', /^\/projects\/(\d+)\/milestones$/, listMilestones],
   ['POST', /^\/projects\/(\d+)\/milestones$/, createMilestone],
@@ -107,12 +112,19 @@ function changePassword({ id, body, actor }) {
 }
 
 // Admins and managers see everyone; employees see themselves and their manager.
-// Employees come with their booked hours (allocatedHours).
+// Employees come with their booked hours (allocatedHours) and overAllocated (over 40h).
+// hourlyRate is only shown to admins, managers and the user themselves.
 function listUsers({ actor }) {
   const visible = actor.role === 'EMPLOYEE'
     ? [actor, ...(actor.managerId ? [findUser(actor.managerId)] : [])]
     : db.users
-  return visible.map((u) => ({ ...u, allocatedHours: u.role === 'EMPLOYEE' ? weeklyHours(u.id) : null }))
+  return visible.map((u) => {
+    const allocatedHours = u.role === 'EMPLOYEE' ? weeklyHours(u.id) : null
+    return {
+      ...u, allocatedHours, overAllocated: allocatedHours != null && allocatedHours > HOURS_PER_WEEK,
+      hourlyRate: actor.role !== 'EMPLOYEE' || u.id === actor.id ? u.hourlyRate : null,
+    }
+  })
 }
 
 function getUser({ id, actor }) {
@@ -131,19 +143,21 @@ function createUser({ body, actor }) {
   if (!ROLES.includes(body.role)) fail(400, `Role must be one of ${ROLES.join(', ')}.`)
 
   let managerId = null
+  let hourlyRate = 0
   if (body.role === 'EMPLOYEE') {
     if (body.managerId == null) fail(400, 'Every employee needs a manager.')
     managerId = requireActiveManager(body.managerId).id
+    if (body.hourlyRate != null) hourlyRate = requireMoney(body.hourlyRate, 'Hourly rate')
   }
 
   const user = {
     id: null, // set by insert()
-    name, email, role: body.role, managerId,
+    name, email, role: body.role, managerId, hourlyRate,
     active: true, deactivationReason: null, photo: null, createdAt: now(), updatedAt: now(),
   }
   insert('users', user)
   passwords.set(user.id, password)
-  record(actor, 'CREATE_USER', 'USER', user.id, { name, email, role: body.role, managerId })
+  record(actor, 'CREATE_USER', 'USER', user.id, { name, email, role: body.role, managerId, hourlyRate })
   return user
 }
 
@@ -167,6 +181,18 @@ function changeManager({ id, body, actor }) {
   user.managerId = requireActiveManager(body.managerId).id
   user.updatedAt = now()
   record(actor, 'MOVE_EMPLOYEE', 'USER', id, { fromManagerId, toManagerId: user.managerId })
+  return user
+}
+
+// Admin only. Applies to past and future hours (labour cost always uses the current rate).
+function setHourlyRate({ id, body, actor }) {
+  requireAdmin(actor, 'Only admins can set hourly rates.')
+  const user = findUser(id)
+  if (user.role !== 'EMPLOYEE') fail(409, 'Only employees have an hourly rate.')
+  const rate = requireMoney(body.hourlyRate, 'Hourly rate')
+  record(actor, 'SET_HOURLY_RATE', 'USER', id, { name: user.name, from: user.hourlyRate, to: rate })
+  user.hourlyRate = rate
+  user.updatedAt = now()
   return user
 }
 
@@ -238,11 +264,11 @@ function getUserAssignments({ id, actor }) {
 // ---------------------------------------------------------------------------
 
 function listProjects({ actor }) {
-  return db.projects.filter((p) => canSeeProject(actor, p)).map(projectView)
+  return db.projects.filter((p) => canSeeProject(actor, p)).map((p) => projectView(p, actor))
 }
 
 function getProject({ id, actor }) {
-  return projectView(findVisibleProject(id, actor))
+  return projectView(findVisibleProject(id, actor), actor)
 }
 
 function createProject({ body, actor }) {
@@ -255,6 +281,7 @@ function createProject({ body, actor }) {
     managerId: requireActiveManager(body.managerId).id,
     startDate: requireDate(body.startDate, 'Start date'),
     predictedEndDate: requireDate(body.predictedEndDate, 'Predicted end date'),
+    plannedBudget: body.plannedBudget != null ? requireMoney(body.plannedBudget, 'Planned budget') : 0,
     status: 'ACTIVE', completedAt: null, archivedAt: null, archiveReason: null, dependsOn: [],
     createdBy: actor.id, createdAt: now(), updatedAt: now(),
   }
@@ -262,9 +289,9 @@ function createProject({ body, actor }) {
   insert('projects', project)
   record(actor, 'CREATE_PROJECT', 'PROJECT', project.id, {
     title: project.title, managerId: project.managerId,
-    startDate: project.startDate, predictedEndDate: project.predictedEndDate,
+    startDate: project.startDate, predictedEndDate: project.predictedEndDate, plannedBudget: project.plannedBudget,
   })
-  return projectView(project)
+  return projectView(project, actor)
 }
 
 // Managers may change everything on their own projects except who manages them.
@@ -283,6 +310,7 @@ function updateProject({ id, body, actor }) {
     next.predictedEndDate = requireDate(body.predictedEndDate, 'Predicted end date')
   }
   if (body.managerId !== undefined) next.managerId = requireActiveManager(body.managerId).id
+  if (body.plannedBudget != null) next.plannedBudget = requireMoney(body.plannedBudget, 'Planned budget')
   requireOrdered(next.startDate, next.predictedEndDate, 'The predicted end date')
   if (body.dependsOn !== undefined) next.dependsOn = requireValidProjectDependencies(project, body.dependsOn)
 
@@ -303,8 +331,9 @@ function updateProject({ id, body, actor }) {
   record(actor, 'UPDATE_PROJECT', 'PROJECT', id, {
     title: body.title, description: body.description, startDate: body.startDate,
     predictedEndDate: body.predictedEndDate, managerId: body.managerId, dependsOn: body.dependsOn,
+    plannedBudget: body.plannedBudget,
   })
-  return projectView(project)
+  return projectView(project, actor)
 }
 
 function completeProject({ id, actor }) {
@@ -319,7 +348,7 @@ function completeProject({ id, actor }) {
   project.completedAt = now()
   project.updatedAt = now()
   record(actor, 'COMPLETE_PROJECT', 'PROJECT', id, { title: project.title })
-  return projectView(project)
+  return projectView(project, actor)
 }
 
 // Projects can depend on projects (same rules as ProjectService.java): no loops, and a
@@ -403,7 +432,7 @@ function archiveProject({ id, body, actor }) {
   project.archiveReason = reason
   project.updatedAt = now()
   record(actor, 'ARCHIVE_PROJECT', 'PROJECT', id, { title: project.title, reason })
-  return projectView(project)
+  return projectView(project, actor)
 }
 
 // ---------------------------------------------------------------------------
@@ -440,7 +469,7 @@ function createAssignment({ id, body, actor }) {
     active: true, deactivatedAt: null, removalReason: null,
     assignedBy: actor.id, createdAt: now(), updatedAt: now(),
   }
-  requireAssignmentFits(assignment, project)
+  requireAssignmentFits(assignment, project, body.allowOverAllocation === true)
 
   insert('assignments', assignment)
   record(actor, 'ASSIGN_EMPLOYEE', 'ASSIGNMENT', assignment.id, {
@@ -460,7 +489,7 @@ function updateAssignment({ id, body, actor }) {
   if (body.hoursPerWeek !== undefined) next.hoursPerWeek = requireHours(body.hoursPerWeek)
   if (body.startDate !== undefined) next.startDate = requireDate(body.startDate, 'Start date')
   if (body.endDate !== undefined) next.endDate = requireDate(body.endDate, 'End date')
-  requireAssignmentFits(next, project)
+  requireAssignmentFits(next, project, body.allowOverAllocation === true)
 
   Object.assign(assignment, next, { updatedAt: now() })
   record(actor, 'UPDATE_ASSIGNMENT', 'ASSIGNMENT', id, {
@@ -481,6 +510,50 @@ function deactivateAssignment({ id, body, actor }) {
     projectId: assignment.projectId, employeeId: assignment.employeeId, reason,
   })
   return assignmentView(assignment)
+}
+
+// ---------------------------------------------------------------------------
+// Expenses (same rules as ExpenseService.java): admins and the project's manager only
+// ---------------------------------------------------------------------------
+
+function listExpenses({ id, actor }) {
+  findManagedProject(id, actor)
+  return db.expenses.filter((e) => e.projectId === id)
+    .sort((a, b) => b.spentOn.localeCompare(a.spentOn) || b.id - a.id)
+}
+
+function createExpense({ id, body, actor }) {
+  const project = findManagedProject(id, actor)
+  requireWritable(project)
+
+  const amount = requireMoney(body.amount, 'Amount')
+  if (amount === 0) fail(400, 'Amount must be more than 0.')
+  const description = requireText(body.description, 'Description')
+  if (description.length > 200) fail(400, 'Keep the description under 200 characters.')
+  const spentOn = body.spentOn ? requireDate(body.spentOn, 'Date') : now().slice(0, 10)
+  if (spentOn > now().slice(0, 10)) fail(400, "Expenses can't be dated in the future.")
+
+  const expense = {
+    id: null, // set by insert()
+    projectId: id, amount, spentOn, description,
+    active: true, voidedAt: null, voidReason: null, createdBy: actor.id, createdAt: now(),
+  }
+  insert('expenses', expense)
+  record(actor, 'ADD_EXPENSE', 'EXPENSE', expense.id, { projectId: id, amount, spentOn, description })
+  return expense
+}
+
+function voidExpense({ id, body, actor }) {
+  const expense = db.expenses.find((e) => e.id === id) ?? fail(404, 'Expense not found.')
+  requireWritable(findManagedProject(expense.projectId, actor))
+  const reason = requireReason(body.reason)
+  if (!expense.active) fail(409, 'This expense has already been voided.')
+
+  expense.active = false
+  expense.voidedAt = now()
+  expense.voidReason = reason
+  record(actor, 'VOID_EXPENSE', 'EXPENSE', id, { projectId: expense.projectId, amount: expense.amount, reason })
+  return expense
 }
 
 // ---------------------------------------------------------------------------
@@ -622,7 +695,7 @@ function dependsOnTransitively(fromId, targetId, seen = new Set()) {
 // Audit log (same as AuditService.java): every change an admin makes
 // ---------------------------------------------------------------------------
 
-const AUDIT_ENTITY_TYPES = ['USER', 'PROJECT', 'ASSIGNMENT', 'MILESTONE']
+const AUDIT_ENTITY_TYPES = ['USER', 'PROJECT', 'ASSIGNMENT', 'MILESTONE', 'EXPENSE']
 
 /** Records the action if the actor is an admin. Never pass passwords in details. */
 function record(actor, action, entityType, entityId, details) {
@@ -655,16 +728,48 @@ function listAuditLogs({ query, actor }) {
 // Views: what the API returns, including calculated fields
 // ---------------------------------------------------------------------------
 
-function projectView(project) {
+// budget is only included for admins and the project's manager (plannedBudget shows 0 for others).
+function projectView(project, actor) {
   const team = db.assignments.filter((a) => a.projectId === project.id && a.active)
   const totalHours = team.reduce((sum, a) => sum + assignmentTotalHours(a), 0)
+  const budget = canManageProject(actor, project) ? budgetView(project) : null
   return {
     ...project,
+    plannedBudget: budget ? project.plannedBudget : 0,
     managerName: findUser(project.managerId).name,
     teamSize: team.length,
     totalHours: Math.round(totalHours * 10) / 10,
+    budget,
   }
 }
+
+/** Planned versus consumed money (same math as BudgetCalculator.java and BudgetSummary.java). */
+function budgetView(project) {
+  const today = now().slice(0, 10)
+  const completed = project.completedAt ? project.completedAt.slice(0, 10) : null
+  const toDate = completed && completed < today ? completed : today
+  let labourToDate = 0
+  let labourForecast = 0
+  for (const a of db.assignments.filter((x) => x.projectId === project.id)) {
+    const rate = findUser(a.employeeId).hourlyRate ?? 0
+    labourToDate += labourCost(a, rate, toDate)
+    labourForecast += labourCost(a, rate, completed)
+  }
+  const expenses = db.expenses.filter((e) => e.projectId === project.id && e.active).reduce((s, e) => s + e.amount, 0)
+  const planned = project.plannedBudget
+  const spent = cents(labourToDate + expenses)
+  return {
+    plannedBudget: planned,
+    labourToDate: cents(labourToDate),
+    expensesToDate: cents(expenses),
+    spentToDate: spent,
+    forecastTotal: cents(labourForecast + expenses),
+    remaining: cents(planned - spent),
+    percentUsed: planned > 0 ? Math.round((spent / planned) * 100) : null,
+  }
+}
+
+const cents = (value) => Math.round(value * 100) / 100
 
 function milestoneView(milestone) {
   const deps = [...milestone.dependsOn].sort((a, b) => a - b)
@@ -740,16 +845,16 @@ function requireCanSeeUserWork(actor, userId) {
 // Validation
 // ---------------------------------------------------------------------------
 
-function requireAssignmentFits(assignment, project) {
+function requireAssignmentFits(assignment, project, allowOverAllocation) {
   requireOrdered(assignment.startDate, assignment.endDate, 'The end date')
   if (assignment.startDate < project.startDate || assignment.endDate > project.predictedEndDate) {
     fail(409, `Assignment dates must be within the project (${project.startDate} to ${project.predictedEndDate}).`)
   }
 
   const otherHours = weeklyHours(assignment.employeeId, assignment.id)
-  if (otherHours + assignment.hoursPerWeek > HOURS_PER_WEEK) {
+  if (!allowOverAllocation && otherHours + assignment.hoursPerWeek > HOURS_PER_WEEK) {
     const name = findUser(assignment.employeeId).name
-    fail(409, `${name} already has ${otherHours} hrs/week on other projects, so at most ${HOURS_PER_WEEK - otherHours} more fit.`)
+    fail(409, `${name} already has ${otherHours} hrs/week on other projects, so this would make them over-allocated (${otherHours + assignment.hoursPerWeek} hrs/week). Confirm to assign anyway.`)
   }
 }
 
@@ -819,6 +924,15 @@ function requireDate(value, label) {
 
 function requireOrdered(start, end, endLabel) {
   if (end < start) fail(400, `${endLabel} can't be before the start date.`)
+}
+
+/** An amount of money: 0 or more, rounded to cents. */
+function requireMoney(value, label) {
+  const amount = Number(value)
+  if (value === null || value === '' || !Number.isFinite(amount)) fail(400, `${label} is required.`)
+  if (amount < 0) fail(400, `${label} can't be negative.`)
+  if (amount > 1e9) fail(400, `${label} is too large.`)
+  return Math.round(amount * 100) / 100
 }
 
 function requireHours(value) {

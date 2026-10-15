@@ -1,5 +1,6 @@
 package com.tracker.service;
 
+import com.tracker.dto.BudgetSummary;
 import com.tracker.dto.CreateProjectRequest;
 import com.tracker.dto.MilestoneRef;
 import com.tracker.dto.ProjectChain;
@@ -50,18 +51,21 @@ public class ProjectService {
     private final UserRepository users;
     private final UserService userService;
     private final HoursCalculator hours;
+    private final BudgetCalculator budgets;
     private final AccessPolicy access;
     private final AuditService audit;
 
     public ProjectService(ProjectRepository projects, AssignmentRepository assignments,
                           MilestoneRepository milestones, UserRepository users,
-                          UserService userService, HoursCalculator hours, AccessPolicy access, AuditService audit) {
+                          UserService userService, HoursCalculator hours, BudgetCalculator budgets,
+                          AccessPolicy access, AuditService audit) {
         this.projects = projects;
         this.assignments = assignments;
         this.milestones = milestones;
         this.users = users;
         this.userService = userService;
         this.hours = hours;
+        this.budgets = budgets;
         this.access = access;
         this.audit = audit;
     }
@@ -73,11 +77,11 @@ public class ProjectService {
             case MANAGER -> projects.findByManager(actor.getId());
             case EMPLOYEE -> projects.findForEmployee(actor.getId());
         };
-        return visible.stream().map(this::summarize).toList();
+        return visible.stream().map(p -> summarize(actor, p)).toList();
     }
 
     public ProjectSummary get(User actor, long id) {
-        return summarize(access.requireVisibleProject(actor, id));
+        return summarize(actor, access.requireVisibleProject(actor, id));
     }
 
     public ProjectSummary create(User actor, CreateProjectRequest req) {
@@ -89,17 +93,19 @@ public class ProjectService {
                 Validate.required(req.startDate(), "Start date"),
                 Validate.required(req.predictedEndDate(), "Predicted end date"));
         project.setDescription(req.description() == null ? "" : req.description());
+        if (req.plannedBudget() != null) project.setPlannedBudget(Validate.money(req.plannedBudget(), "Planned budget"));
         Validate.ordered(project.getStartDate(), project.getPredictedEndDate(), "The predicted end date");
 
         Project saved = projects.insert(project, actor.getId());
         audit.record(actor, "CREATE_PROJECT", "PROJECT", saved.getId(), details(
                 "title", saved.getName(), "managerId", saved.getManagerId(),
-                "startDate", saved.getStartDate(), "predictedEndDate", saved.getPredictedEndDate()));
-        return summarize(saved);
+                "startDate", saved.getStartDate(), "predictedEndDate", saved.getPredictedEndDate(),
+                "plannedBudget", saved.getPlannedBudget()));
+        return summarize(actor, saved);
     }
 
     /**
-     * Managers may change title, description, start date and predicted end date on their own
+     * Managers may change title, description, dates and planned budget on their own
      * projects. Only admins may hand a project to another manager.
      * New dates must still contain every active assignment and every milestone.
      */
@@ -116,6 +122,7 @@ public class ProjectService {
         if (req.startDate() != null) project.setStartDate(req.startDate());
         if (req.predictedEndDate() != null) project.setPredictedEndDate(req.predictedEndDate());
         if (req.managerId() != null) project.setManagerId(userService.requireActiveManager(req.managerId()).getId());
+        if (req.plannedBudget() != null) project.setPlannedBudget(Validate.money(req.plannedBudget(), "Planned budget"));
         Validate.ordered(project.getStartDate(), project.getPredictedEndDate(), "The predicted end date");
         Set<Long> dependsOn = req.dependsOn() == null ? null : validProjectDependencies(id, req.dependsOn());
 
@@ -135,8 +142,9 @@ public class ProjectService {
         if (dependsOn != null) projects.setDependencies(id, dependsOn);
         audit.record(actor, "UPDATE_PROJECT", "PROJECT", id, details(
                 "title", req.title(), "description", req.description(), "startDate", req.startDate(),
-                "predictedEndDate", req.predictedEndDate(), "managerId", req.managerId(), "dependsOn", dependsOn));
-        return summarize(saved);
+                "predictedEndDate", req.predictedEndDate(), "managerId", req.managerId(), "dependsOn", dependsOn,
+                "plannedBudget", req.plannedBudget()));
+        return summarize(actor, saved);
     }
 
     /**
@@ -228,7 +236,7 @@ public class ProjectService {
         project.setCompletedAt(Instant.now());
         Project saved = projects.update(project);
         audit.record(actor, "COMPLETE_PROJECT", "PROJECT", id, details("title", saved.getName()));
-        return summarize(saved);
+        return summarize(actor, saved);
     }
 
     /** Admin only. After this the project and everything in it is read-only. */
@@ -246,12 +254,15 @@ public class ProjectService {
         project.setArchiveReason(reason);
         Project saved = projects.update(project);
         audit.record(actor, "ARCHIVE_PROJECT", "PROJECT", id, details("title", saved.getName(), "reason", reason));
-        return summarize(saved);
+        return summarize(actor, saved);
     }
 
-    private ProjectSummary summarize(Project project) {
+    /** Budget figures are only included for admins and the project's manager. */
+    private ProjectSummary summarize(User actor, Project project) {
         List<Assignment> team = assignments.findByProject(project.getId(), false);
         List<Long> dependsOn = new ArrayList<>(projects.dependsOn(project.getId()));
-        return ProjectSummary.of(project, managerName(project), dependsOn, team.size(), hours.projectTotalHours(team));
+        BudgetSummary budget = access.canManageProject(actor, project) ? budgets.summarize(project) : null;
+        return ProjectSummary.of(project, managerName(project), dependsOn, team.size(), hours.projectTotalHours(team),
+                budget);
     }
 }

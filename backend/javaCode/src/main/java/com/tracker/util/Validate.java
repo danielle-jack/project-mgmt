@@ -74,6 +74,14 @@ public final class Validate {
         return value;
     }
 
+    /** An amount of money: 0 or more, rounded to cents. */
+    public static double money(Double value, String label) {
+        if (value == null || value.isNaN() || value.isInfinite()) throw new BadRequestException(label + " is required.");
+        if (value < 0) throw new BadRequestException(label + " can't be negative.");
+        if (value > 1_000_000_000) throw new BadRequestException(label + " is too large.");
+        return Math.round(value * 100) / 100.0;
+    }
+
     public static int percent(Integer value) {
         if (value == null || value < 0 || value > 100) {
             throw new BadRequestException("Progress must be a whole number from 0 to 100.");

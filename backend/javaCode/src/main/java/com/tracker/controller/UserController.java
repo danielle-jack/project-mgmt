@@ -3,6 +3,7 @@ package com.tracker.controller;
 import com.tracker.dto.ChangeManagerRequest;
 import com.tracker.dto.ChangePasswordRequest;
 import com.tracker.dto.CreateUserRequest;
+import com.tracker.dto.HourlyRateRequest;
 import com.tracker.dto.LoginRequest;
 import com.tracker.dto.PhotoRequest;
 import com.tracker.dto.ReasonRequest;
@@ -36,6 +37,8 @@ public class UserController {
                 (actor, req, id) -> users.changeManager(actor, id, req.body(ChangeManagerRequest.class).managerId()));
         router.post("/users/{id}/deactivate",
                 (actor, req, id) -> users.deactivate(actor, id, req.body(ReasonRequest.class).reason()));
+        router.patch("/users/{id}/rate",
+                (actor, req, id) -> users.setHourlyRate(actor, id, req.body(HourlyRateRequest.class).hourlyRate()));
         router.put("/users/{id}/photo", (actor, req, id) -> users.setPhoto(actor, id, req.body(PhotoRequest.class).photo()));
         router.post("/users/{id}/reactivate", (actor, req, id) -> users.reactivate(actor, id));
         router.get("/users/{id}/hours", (actor, req, id) -> assignments.weeklyHours(actor, id));

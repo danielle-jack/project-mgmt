@@ -5,7 +5,7 @@ import java.time.LocalDate;
 
 /**
  * Has exactly one manager, a start date and a predicted end date.
- * Total hours are calculated from assignments, never stored.
+ * Total hours and money spent are calculated from assignments and expenses, never stored.
  */
 public class Project {
     private Long id;
@@ -18,6 +18,7 @@ public class Project {
     private Instant completedAt;         // set when the manager marks it COMPLETED
     private Instant archivedAt;          // set when an admin archives it
     private String archiveReason;        // why it was archived
+    private double plannedBudget;        // total money planned for labour + expenses
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -65,5 +66,8 @@ public class Project {
 
     public String getArchiveReason() { return archiveReason; }
     public void setArchiveReason(String archiveReason) { this.archiveReason = archiveReason; }
+
+    public double getPlannedBudget() { return plannedBudget; }
+    public void setPlannedBudget(double plannedBudget) { this.plannedBudget = plannedBudget; }
 }
 

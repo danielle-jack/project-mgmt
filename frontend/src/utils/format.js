@@ -20,6 +20,17 @@ function toDate(iso) {
   return new Date(y, m - 1, d)
 }
 
+// Budgets, rates and expenses are all in this currency.
+export const CURRENCY = 'USD'
+
+/** 12500 -> "$12,500", 87.5 -> "$87.50" */
+export function formatMoney(amount) {
+  const whole = Number.isInteger(Math.round(amount * 100) / 100)
+  return amount.toLocaleString('en-US', {
+    style: 'currency', currency: CURRENCY, minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2,
+  })
+}
+
 /** "2026-12-18" -> "Dec 18, 2026" */
 export function formatDate(iso) {
   return toDate(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

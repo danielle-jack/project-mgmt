@@ -20,7 +20,7 @@ import java.util.TreeSet;
 public class ProjectRepository {
     private static final String COLUMNS = """
             project_id, title, description, manager_id, start_date, predicted_end_date,
-            status, completed_at, archived_at, archive_reason, created_at, updated_at""";
+            status, completed_at, archived_at, archive_reason, planned_budget, created_at, updated_at""";
 
     private final Database db;
 
@@ -84,12 +84,13 @@ public class ProjectRepository {
     /** Saves a new project and fills in its id and timestamps. */
     public Project insert(Project p, long createdBy) {
         return db.one("""
-                INSERT INTO projects (title, description, manager_id, start_date, predicted_end_date, status, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projects (title, description, manager_id, start_date, predicted_end_date, status,
+                                      planned_budget, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING\s""" + COLUMNS,
                 ProjectRepository::map,
                 p.getName(), p.getDescription(), p.getManagerId(), p.getStartDate(), p.getPredictedEndDate(),
-                p.getStatus(), createdBy)
+                p.getStatus(), p.getPlannedBudget(), createdBy)
                 .orElseThrow();
     }
 
@@ -98,12 +99,14 @@ public class ProjectRepository {
         return db.one("""
                 UPDATE projects
                 SET title = ?, description = ?, manager_id = ?, start_date = ?, predicted_end_date = ?,
-                    status = ?, completed_at = ?, archived_at = ?, archive_reason = ?, updated_at = now()
+                    status = ?, completed_at = ?, archived_at = ?, archive_reason = ?, planned_budget = ?,
+                    updated_at = now()
                 WHERE project_id = ?
                 RETURNING\s""" + COLUMNS,
                 ProjectRepository::map,
                 p.getName(), p.getDescription(), p.getManagerId(), p.getStartDate(), p.getPredictedEndDate(),
-                p.getStatus(), p.getCompletedAt(), p.getArchivedAt(), p.getArchiveReason(), p.getId())
+                p.getStatus(), p.getCompletedAt(), p.getArchivedAt(), p.getArchiveReason(), p.getPlannedBudget(),
+                p.getId())
                 .orElseThrow();
     }
 
@@ -116,6 +119,7 @@ public class ProjectRepository {
         p.setCompletedAt(Database.instant(rs, "completed_at"));
         p.setArchivedAt(Database.instant(rs, "archived_at"));
         p.setArchiveReason(rs.getString("archive_reason"));
+        p.setPlannedBudget(rs.getDouble("planned_budget"));
         p.setCreatedAt(Database.instant(rs, "created_at"));
         p.setUpdatedAt(Database.instant(rs, "updated_at"));
         return p;

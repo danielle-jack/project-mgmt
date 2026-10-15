@@ -12,8 +12,10 @@ what's due soon, and what changed recently.
 
 - **Sign-in and role-based access.** Admin, Manager, and Employee roles, enforced on the backend
 - **Projects.** Create, edit, archive, and restore projects, each with its own detail view
-- **Milestones.** Track due dates and status, with reminders for upcoming deadlines
-- **People and assignments.** Assign team members to projects and track weekly hours
+- **Milestones (deliverables).** Track due dates, status and progress, with dependency chains across projects and reminders for upcoming deadlines
+- **People and assignments.** Assign team members to projects and track weekly hours. Anyone booked over 40 hours a week is flagged as over-allocated
+- **Budgets.** Planned budget per project against what's been spent: labour (hours worked × hourly rate) plus logged expenses, with a forecast at finish
+- **Risk detection.** Projects are flagged when milestones are overdue or blocked, progress falls behind the time used, spending is over or forecast to go over budget, or nobody is assigned
 - **Activity log.** An audit trail of who changed what
 - **Notifications, search, and filters** on every page
 - **Responsive layout** for desktop and mobile

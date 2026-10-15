@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import Icon from '../components/Icon'
 import { Avatar } from '../components/ui'
 import { milestoneHealth, projectHealth, projectProgress, TONE } from '../utils/projectHealth'
-import { dateBadge, daysUntil, formatDate, greeting, longToday, relativeDue, ROLE_SHORT } from '../utils/format'
+import { dateBadge, daysUntil, formatDate, formatMoney, greeting, longToday, relativeDue, ROLE_SHORT } from '../utils/format'
 
 const FILTERS = ['All projects', 'On track', 'At risk']
 const UPCOMING_DAYS = 7
@@ -107,8 +107,10 @@ export default function DashboardPage({ user, data, query, onNavigate, onOpenPro
                 <span><i className="dot blue-dot" /><small>Available</small><strong>{formatHours(capacity.total - capacity.allocated)}h</strong></span>
               </div>
             </div>
-            {!isEmployee && <CapacityAlert capacity={capacity} />}
+            {!isEmployee && <CapacityAlert capacity={capacity} onOpen={() => onNavigate('People')} />}
           </div>
+
+          <BudgetOverview projects={projects} onOpenProject={onOpenProject} />
 
           <div className="panel milestones-panel">
             <div className="panel-header"><div><h2>Upcoming milestones</h2><p>Next {UPCOMING_DAYS} days</p></div><button className="text-button" onClick={() => onNavigate('Milestones')}>View all</button></div>
@@ -136,7 +138,7 @@ function ProjectRow({ project, onOpen }) {
         {team.map((member) => <Avatar key={member.id} name={member.employeeName} userId={member.employeeId} small />)}
         {extra > 0 && <span className="avatar avatar-small extra">+{extra}</span>}
       </div>
-      <span className={`status ${project.health.tone}`}><i />{project.health.label}</span>
+      <span className={`status ${project.health.tone}`} title={project.health.risks.map((r) => r.text).join('\n') || undefined}><i />{project.health.label}</span>
       <button className="row-action" onClick={onOpen} aria-label={`Open ${project.title}`}><Icon name="arrow" size={17} /></button>
     </article>
   )
@@ -161,8 +163,17 @@ function MilestoneRow({ milestone }) {
   )
 }
 
-function CapacityAlert({ capacity }) {
+function CapacityAlert({ capacity, onOpen }) {
   if (capacity.people === 0) return null
+  if (capacity.overAllocated > 0) {
+    return (
+      <button className="capacity-alert danger" onClick={onOpen}>
+        <Icon name="alert" size={17} />
+        <span><strong>{plural(capacity.overAllocated, 'employee')} over-allocated</strong><small>Booked for more than 40h a week across projects</small></span>
+        <Icon name="arrow" size={15} />
+      </button>
+    )
+  }
   if (capacity.fullyBooked > 0) {
     return (
       <div className="capacity-alert">
@@ -182,6 +193,40 @@ function CapacityAlert({ capacity }) {
     )
   }
   return null
+}
+
+/** Planned versus spent for each active project with a budget, most used first. Admins and managers only. */
+function BudgetOverview({ projects, onOpenProject }) {
+  const budgeted = projects
+    .filter((p) => p.status === 'ACTIVE' && p.budget?.plannedBudget > 0)
+    .sort((a, b) => b.budget.percentUsed - a.budget.percentUsed)
+  if (budgeted.length === 0) return null
+  const planned = budgeted.reduce((sum, p) => sum + p.budget.plannedBudget, 0)
+  const spent = budgeted.reduce((sum, p) => sum + p.budget.spentToDate, 0)
+
+  return (
+    <div className="panel">
+      <div className="panel-header"><div><h2>Budget</h2><p>{formatMoney(spent)} of {formatMoney(planned)} spent</p></div></div>
+      <div className="budget-list">
+        {budgeted.slice(0, 5).map((p) => {
+          const { budget } = p
+          const over = budget.spentToDate > budget.plannedBudget
+          const forecastOver = budget.forecastTotal > budget.plannedBudget
+          return (
+            <button key={p.id} className="budget-list-row" onClick={() => onOpenProject(p.id)}>
+              <strong>{p.title}</strong>
+              <small className={over ? 'danger-text' : forecastOver ? 'warning-text' : ''}>
+                {budget.percentUsed}%{over ? ' · over' : forecastOver ? ' · forecast over' : ''}
+              </small>
+              <span className={`budget-bar ${over ? 'over' : forecastOver ? 'forecast-over' : ''}`}>
+                <i className="spent" style={{ width: `${Math.min(100, budget.percentUsed)}%` }} />
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 /** Unfinished milestones that are overdue or due within the next week, soonest first. */

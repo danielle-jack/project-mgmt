@@ -69,13 +69,13 @@ export function Progress({ value }) {
   return <div className="progress-track"><i style={{ width: `${value}%` }} /></div>
 }
 
-/** Weekly hours against the 40-hour limit. */
+/** Weekly hours against the 40-hour week. Over it, the bar turns red and says by how much. */
 export function HoursBar({ hours, limit }) {
   const pct = Math.min(100, Math.round((hours / limit) * 100))
-  const tone = hours >= limit ? 'full' : hours === 0 ? 'empty' : ''
+  const tone = hours > limit ? 'over' : hours === limit ? 'full' : hours === 0 ? 'empty' : ''
   return (
     <div className={`hours-bar ${tone}`}>
-      <span><strong>{formatHours(hours)}h</strong><small>of {limit}h</small></span>
+      <span><strong>{formatHours(hours)}h</strong><small>{hours > limit ? `${formatHours(hours - limit)}h over ${limit}h` : `of ${limit}h`}</small></span>
       <div className="progress-track"><i style={{ width: `${pct}%` }} /></div>
     </div>
   )

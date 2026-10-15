@@ -2,13 +2,14 @@ import { get, post, patch } from './api'
 
 /**
  * Admins see every project, managers see their own, employees see the ones
- * they're assigned to. Each project includes a calculated totalHours.
+ * they're assigned to. Each project includes a calculated totalHours, and for admins and its
+ * manager a budget: { plannedBudget, labourToDate, expensesToDate, spentToDate, forecastTotal, remaining, percentUsed }.
  */
 export const getProjects = () => get('/projects')
 
 export const getProject = (id) => get(`/projects/${id}`)
 
-/** Admin only. project = { title, description, managerId, startDate, predictedEndDate } */
+/** Admin only. project = { title, description, managerId, startDate, predictedEndDate, plannedBudget } */
 export const createProject = (project) => post('/projects', project)
 
 /** Admin, or the project's manager. Only active projects can change. changes.dependsOn = project ids. */

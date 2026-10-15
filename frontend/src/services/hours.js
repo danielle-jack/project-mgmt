@@ -21,3 +21,18 @@ export function countWorkdays(startDate, endDate) {
 export function assignmentTotalHours({ hoursPerWeek, startDate, endDate }) {
   return (hoursPerWeek * countWorkdays(startDate, endDate)) / DAYS_PER_WEEK
 }
+
+/**
+ * Labour cost of one assignment (same rule as BudgetCalculator.java): hourly rate x hours per week,
+ * over the workdays from its start to whichever comes first of its end date, the day the person was
+ * removed from the team, and `cutoff` ('YYYY-MM-DD', or null for no cutoff).
+ */
+export function labourCost(assignment, rate, cutoff) {
+  let end = assignment.endDate
+  if (!assignment.active && assignment.deactivatedAt) end = earlier(end, assignment.deactivatedAt.slice(0, 10))
+  if (cutoff) end = earlier(end, cutoff)
+  if (end < assignment.startDate) return 0
+  return (rate * assignment.hoursPerWeek * countWorkdays(assignment.startDate, end)) / DAYS_PER_WEEK
+}
+
+const earlier = (a, b) => (a < b ? a : b)

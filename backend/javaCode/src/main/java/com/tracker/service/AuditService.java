@@ -20,7 +20,7 @@ import java.util.Set;
  * passwords or password hashes in the details.
  */
 public class AuditService {
-    public static final Set<String> ENTITY_TYPES = Set.of("USER", "PROJECT", "ASSIGNMENT", "MILESTONE");
+    public static final Set<String> ENTITY_TYPES = Set.of("USER", "PROJECT", "ASSIGNMENT", "MILESTONE", "EXPENSE");
     private static final int DEFAULT_LIMIT = 100;
     private static final int MAX_LIMIT = 500;
 

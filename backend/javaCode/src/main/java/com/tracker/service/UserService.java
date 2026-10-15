@@ -102,7 +102,8 @@ public class UserService {
         }
         Map<Long, Double> booked = assignments.bookedHoursByEmployee();
         return visible.stream()
-                .map(u -> UserSummary.of(u, u.getRole() == Role.EMPLOYEE ? booked.getOrDefault(u.getId(), 0.0) : null))
+                .map(u -> UserSummary.of(u, u.getRole() == Role.EMPLOYEE ? booked.getOrDefault(u.getId(), 0.0) : null,
+                        actor.getRole() != Role.EMPLOYEE || u.getId().equals(actor.getId())))
                 .toList();
     }
 
@@ -126,11 +127,12 @@ public class UserService {
         if (req.role() == Role.EMPLOYEE) {
             if (req.managerId() == null) throw new BadRequestException("Every employee needs a manager.");
             user.setManagerId(requireActiveManager(req.managerId()).getId());
+            if (req.hourlyRate() != null) user.setHourlyRate(Validate.money(req.hourlyRate(), "Hourly rate"));
         }
         User saved = users.insert(user, actor.getId(), Passwords.hash(password));
         audit.record(actor, "CREATE_USER", "USER", saved.getId(), details(
                 "name", saved.getName(), "email", saved.getEmail(), "role", saved.getRole(),
-                "managerId", saved.getManagerId()));
+                "managerId", saved.getManagerId(), "hourlyRate", saved.getHourlyRate()));
         return saved;
     }
 
@@ -209,6 +211,18 @@ public class UserService {
         String checked = Validate.photo(photo);
         users.setPhoto(id, checked);
         audit.record(actor, checked == null ? "REMOVE_PHOTO" : "SET_PHOTO", "USER", id, details("name", user.getName()));
+        return find(id);
+    }
+
+    /** Admin only. The cost per hour used for project labour cost. Applies to past and future hours. */
+    public User setHourlyRate(User actor, long id, Double rate) {
+        access.requireAdmin(actor, "Only admins can set hourly rates.");
+        User user = find(id);
+        if (user.getRole() != Role.EMPLOYEE) throw new BusinessRuleException("Only employees have an hourly rate.");
+        double checked = Validate.money(rate, "Hourly rate");
+        users.setHourlyRate(id, checked);
+        audit.record(actor, "SET_HOURLY_RATE", "USER", id,
+                details("name", user.getName(), "from", user.getHourlyRate(), "to", checked));
         return find(id);
     }
 

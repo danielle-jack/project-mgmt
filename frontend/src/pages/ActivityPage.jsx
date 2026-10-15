@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Avatar, EmptyState, PageHeading, Tabs } from '../components/ui'
 import { getAuditLogs } from '../services/auditApi'
 import { ROLE_LABEL } from '../utils/rules'
+import { formatMoney } from '../utils/format'
 
 const PAGE_SIZE = 100
 const TABS = [
@@ -10,6 +11,7 @@ const TABS = [
   { value: 'PROJECT', label: 'Projects' },
   { value: 'ASSIGNMENT', label: 'Team' },
   { value: 'MILESTONE', label: 'Milestones' },
+  { value: 'EXPENSE', label: 'Expenses' },
 ]
 
 /**
@@ -111,7 +113,10 @@ function describe(entry, names) {
     case 'SET_PHOTO': return `updated ${user}’s photo`
     case 'REMOVE_PHOTO': return `removed ${user}’s photo`
     case 'CREATE_PROJECT': return `created ${d.title}`
-    case 'UPDATE_PROJECT': return `edited ${project(entry.entityId)}${changes(d, { title: 'name', description: 'description', startDate: 'start date', predictedEndDate: 'end date', managerId: 'manager', dependsOn: 'dependencies' })}`
+    case 'UPDATE_PROJECT': return `edited ${project(entry.entityId)}${changes(d, { title: 'name', description: 'description', startDate: 'start date', predictedEndDate: 'end date', managerId: 'manager', dependsOn: 'dependencies', plannedBudget: 'budget' })}`
+    case 'ADD_EXPENSE': return `logged ${formatMoney(d.amount)} for “${d.description}” on ${project(d.projectId)}`
+    case 'VOID_EXPENSE': return `voided a ${formatMoney(d.amount)} expense on ${project(d.projectId)}`
+    case 'SET_HOURLY_RATE': return `set ${user}’s hourly rate to ${formatMoney(d.to)}`
     case 'COMPLETE_PROJECT': return `marked ${d.title ?? project(entry.entityId)} completed`
     case 'ARCHIVE_PROJECT': return `archived ${d.title ?? project(entry.entityId)}`
     case 'ASSIGN_EMPLOYEE': return `added ${names.user(d.employeeId)} to ${project(d.projectId)} for ${d.hoursPerWeek}h a week`

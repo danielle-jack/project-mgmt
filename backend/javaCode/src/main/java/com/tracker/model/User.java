@@ -15,6 +15,7 @@ public class User {
     private boolean active = true;
     private String deactivationReason; // why an admin deactivated them; cleared on reactivation
     private String photo;              // small profile photo as a data URL, or null for initials
+    private double hourlyRate;         // cost per hour, used for project labour cost; set by admins
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -55,4 +56,7 @@ public class User {
 
     public String getPhoto() { return photo; }
     public void setPhoto(String photo) { this.photo = photo; }
+
+    public double getHourlyRate() { return hourlyRate; }
+    public void setHourlyRate(double hourlyRate) { this.hourlyRate = hourlyRate; }
 }

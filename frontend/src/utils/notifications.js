@@ -7,7 +7,7 @@
 //   tone    'red' | 'amber' | 'blue', most urgent first
 //   target  where clicking it goes: { page, projectId? }
 
-import { daysUntil, formatDate, todayISO } from './format'
+import { daysUntil, formatDate, formatMoney, todayISO } from './format'
 import { dependencyOf, unfinishedUpstream, WEEK_HOURS } from './rules'
 
 const DUE_SOON_DAYS = 3
@@ -26,6 +26,21 @@ export function buildNotifications(user, data) {
         id: `waiting-project:${project.id}:${upstream.id}`, tone: 'blue', target,
         title: `${project.title} is waiting on ${upstream.title}`,
         detail: `${upstream.title} is ${upstream.progressPercent}% done. ${project.title} can’t be completed until it’s finished.`,
+      })
+    }
+
+    const { budget } = project // only admins and the project's manager get one
+    if (budget?.plannedBudget > 0 && budget.spentToDate > budget.plannedBudget) {
+      list.push({
+        id: `over-budget:${project.id}`, tone: 'red', target,
+        title: `${project.title} is over budget`,
+        detail: `${formatMoney(budget.spentToDate)} spent of ${formatMoney(budget.plannedBudget)} planned`,
+      })
+    } else if (budget?.plannedBudget > 0 && budget.forecastTotal > budget.plannedBudget) {
+      list.push({
+        id: `forecast-over:${project.id}`, tone: 'amber', target,
+        title: `${project.title} is forecast to go over budget`,
+        detail: `Forecast ${formatMoney(budget.forecastTotal)} against ${formatMoney(budget.plannedBudget)} planned`,
       })
     }
 
@@ -86,9 +101,23 @@ export function buildNotifications(user, data) {
     }
   }
 
+  // Admins hear about everyone who's over-allocated; managers about their own reports.
+  if (user.role !== 'EMPLOYEE') {
+    for (const person of data.users) {
+      if (!person.active || (user.role === 'MANAGER' && person.managerId !== user.id)) continue
+      if ((person.allocatedHours ?? 0) > WEEK_HOURS) {
+        list.push({
+          id: `over-allocated:${person.id}:${person.allocatedHours}`, tone: 'amber', target: { page: 'People' },
+          title: `${person.name} is over-allocated`,
+          detail: `${person.allocatedHours}h a week across projects, ${person.allocatedHours - WEEK_HOURS}h over the ${WEEK_HOURS}h week`,
+        })
+      }
+    }
+  }
+
   if (user.role === 'MANAGER') {
     for (const person of data.users) {
-      if (person.active && person.managerId === user.id && (person.allocatedHours ?? 0) >= WEEK_HOURS) {
+      if (person.active && person.managerId === user.id && (person.allocatedHours ?? 0) === WEEK_HOURS) {
         list.push({
           id: `booked:${person.id}`, tone: 'blue', target: { page: 'People' },
           title: `${person.name} is fully booked`,

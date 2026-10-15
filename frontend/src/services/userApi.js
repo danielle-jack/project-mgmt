@@ -9,7 +9,7 @@ export const getUsers = () => get('/users')
 export const getUser = (id) => get(`/users/${id}`)
 
 /**
- * Admin only. user = { name, email, role, managerId, password }.
+ * Admin only. user = { name, email, role, managerId, password, hourlyRate? }.
  * managerId is required for employees; password is a temporary one (8+ characters)
  * for the admin to share with the new user.
  */
@@ -37,6 +37,9 @@ export const deactivateUser = (id, reason) => post(`/users/${id}/deactivate`, { 
 export const setPhoto = (id, photo) => put(`/users/${id}/photo`, { photo })
 
 export const reactivateUser = (id) => post(`/users/${id}/reactivate`)
+
+/** Admin only: an employee's cost per hour, used for project labour cost. */
+export const setHourlyRate = (id, hourlyRate) => patch(`/users/${id}/rate`, { hourlyRate })
 
 /** { employeeId, allocatedHours, availableHours } across all active assignments. */
 export const getWeeklyHours = (id) => get(`/users/${id}/hours`)

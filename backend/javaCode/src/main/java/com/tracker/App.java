@@ -4,6 +4,7 @@ import com.tracker.controller.ApiRequest;
 import com.tracker.controller.ApiResponse;
 import com.tracker.controller.AssignmentController;
 import com.tracker.controller.AuditController;
+import com.tracker.controller.ExpenseController;
 import com.tracker.controller.MilestoneController;
 import com.tracker.controller.ProjectController;
 import com.tracker.controller.Router;
@@ -13,6 +14,7 @@ import com.tracker.exception.DatabaseException;
 import com.tracker.repository.AssignmentRepository;
 import com.tracker.repository.AuditLogRepository;
 import com.tracker.repository.Database;
+import com.tracker.repository.ExpenseRepository;
 import com.tracker.repository.MilestoneRepository;
 import com.tracker.repository.ProjectRepository;
 import com.tracker.repository.UserRepository;
@@ -21,6 +23,8 @@ import com.tracker.security.CurrentUser;
 import com.tracker.security.Tokens;
 import com.tracker.service.AssignmentService;
 import com.tracker.service.AuditService;
+import com.tracker.service.BudgetCalculator;
+import com.tracker.service.ExpenseService;
 import com.tracker.service.HoursCalculator;
 import com.tracker.service.MilestoneService;
 import com.tracker.service.ProjectService;
@@ -41,19 +45,22 @@ public class App {
         ProjectRepository projects = new ProjectRepository(db);
         AssignmentRepository assignments = new AssignmentRepository(db);
         MilestoneRepository milestones = new MilestoneRepository(db);
+        ExpenseRepository expenses = new ExpenseRepository(db);
 
         AccessPolicy access = new AccessPolicy(projects, assignments);
         AuditService audit = new AuditService(new AuditLogRepository(db), access);
         UserService userService = new UserService(users, projects, assignments, access, tokens, audit);
         AssignmentService assignmentService = new AssignmentService(assignments, projects, users, access, audit);
-        ProjectService projectService = new ProjectService(
-                projects, assignments, milestones, users, userService, new HoursCalculator(), access, audit);
+        ProjectService projectService = new ProjectService(projects, assignments, milestones, users, userService,
+                new HoursCalculator(), new BudgetCalculator(assignments, expenses, users), access, audit);
+        ExpenseService expenseService = new ExpenseService(expenses, access, audit);
         MilestoneService milestoneService = new MilestoneService(milestones, projects, access, audit);
 
         new UserController(userService, assignmentService).register(router);
         new ProjectController(projectService).register(router);
         new AssignmentController(assignmentService).register(router);
         new MilestoneController(milestoneService).register(router);
+        new ExpenseController(expenseService).register(router);
         new AuditController(audit).register(router);
     }
 

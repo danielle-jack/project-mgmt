@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import Icon from './Icon'
-import { AssignmentForm, MilestoneForm, ProjectForm } from './forms'
+import { AssignmentForm, ExpenseForm, MilestoneForm, ProjectForm } from './forms'
 import { Avatar, EmptyState, formatHours, Modal, plural, Progress, Status, useAction } from './ui'
 import { milestoneHealth, projectHealth, projectProgress, TONE } from '../utils/projectHealth'
-import { dateBadge, daysUntil, formatDate } from '../utils/format'
+import { dateBadge, daysUntil, formatDate, formatMoney } from '../utils/format'
 import {
   activeAssignments, allocatedHours, can, countWorkdays, dependencyOf, MILESTONE_STATUS, milestoneConflicts,
   milestoneProgress, projectPlannedHours, projectWeeklyHours, ROLES, unfinishedUpstream, WEEK_HOURS,
@@ -27,6 +27,7 @@ export default function ProjectDetail({ user, data, project, actions, onBack, ba
   const canArchive = !archived && can.archiveProject(user, project)
   const canTeam = !archived && can.manageTeam(user, project)
   const canMilestones = !archived && can.manageMilestones(user, project)
+  const canExpenses = !archived && can.manageExpenses(user, project)
 
   return (
     <>
@@ -59,6 +60,8 @@ export default function ProjectDetail({ user, data, project, actions, onBack, ba
         </div>
       )}
 
+      {health?.risks.length > 0 && <RiskPanel risks={health.risks} />}
+
       <section className="summary-strip">
         <div><small>Manager</small><span className="summary-person"><Avatar name={project.managerName} userId={project.managerId} small /><strong>{project.managerName}</strong></span></div>
         <div><small>Timeline</small><strong>{formatDate(project.startDate)} – {formatDate(project.predictedEndDate)}</strong>
@@ -67,6 +70,12 @@ export default function ProjectDetail({ user, data, project, actions, onBack, ba
         <div><small>Planned hours</small><strong>{formatHours(projectPlannedHours(project))}h</strong><span className="summary-note">From team assignments</span></div>
         <div className="summary-progress"><small>Milestone progress</small><strong>{progress}%</strong><Progress value={progress} /></div>
       </section>
+
+      {project.budget && (
+        <BudgetPanel project={project}
+          onAdd={canExpenses ? () => setDialog({ kind: 'expense' }) : undefined}
+          onVoid={canExpenses ? (expense) => setDialog({ kind: 'void-expense', item: expense }) : undefined} />
+      )}
 
       <DependenciesPanel project={project} onOpenProject={onOpenProject} />
 
@@ -120,6 +129,14 @@ export default function ProjectDetail({ user, data, project, actions, onBack, ba
 
       {dialog?.kind === 'edit' && <ProjectForm user={user} users={data.users} project={project} actions={actions} onClose={close} onSaved={onNotice} />}
       {dialog?.kind === 'assign' && <AssignmentForm user={user} data={data} project={project} assignment={dialog.item} actions={actions} onClose={close} onSaved={onNotice} />}
+      {dialog?.kind === 'expense' && <ExpenseForm project={project} actions={actions} onClose={close} onSaved={onNotice} />}
+      {dialog?.kind === 'void-expense' && (
+        <ConfirmDialog title={`Void “${dialog.item.description}”?`} confirmLabel="Void expense" onClose={close}
+          reasonLabel="Why is it being voided?"
+          onConfirm={(reason) => actions.voidExpense(dialog.item.id, reason)} onDone={() => onNotice?.('Expense voided.')}>
+          {formatMoney(dialog.item.amount)} stops counting toward the budget. The expense stays in the list, marked voided.
+        </ConfirmDialog>
+      )}
       {dialog?.kind === 'milestone' && <MilestoneForm project={project} milestone={dialog.item} actions={actions} onClose={close} onSaved={onNotice} />}
       {dialog?.kind === 'remove' && (
         <ConfirmDialog title={`Remove ${dialog.item.employeeName}?`} confirmLabel="Remove from team" onClose={close}
@@ -185,13 +202,18 @@ export function MilestoneItem({ milestone, project, onEdit, showProject }) {
 function TeamRow({ assignment, isYou, data, onEdit, onRemove }) {
   const employee = data.users.find((u) => u.id === assignment.employeeId)
   const total = employee ? allocatedHours(employee, data.projects) : null
+  const over = total != null && total > WEEK_HOURS
   return (
     <div className="team-row">
       <Avatar name={assignment.employeeName} userId={assignment.employeeId} />
       <span className="team-copy">
         <strong>{assignment.employeeName}{isYou && <em className="you-tag">You</em>}</strong>
         <small>{assignment.hoursPerWeek}h a week · {formatDate(assignment.startDate)} – {formatDate(assignment.endDate)}</small>
-        {total != null && onEdit && <small className={total >= WEEK_HOURS ? 'warning-text' : ''}>{total}h of {WEEK_HOURS}h booked across all projects</small>}
+        {total != null && onEdit && (
+          <small className={over ? 'danger-text' : total === WEEK_HOURS ? 'warning-text' : ''}>
+            {total}h of {WEEK_HOURS}h booked across all projects{over ? ` · over-allocated by ${total - WEEK_HOURS}h` : ''}
+          </small>
+        )}
       </span>
       {(onEdit || onRemove) && (
         <span className="row-buttons">
@@ -234,6 +256,74 @@ export function ConfirmDialog({ title, confirmLabel, children, onConfirm, onDone
       )}
       {error && <div className="login-error" role="alert">{error}</div>}
     </Modal>
+  )
+}
+
+/** Why the project is "At risk" or "Needs attention". */
+function RiskPanel({ risks }) {
+  return (
+    <section className="risk-panel" aria-label="Risks">
+      {risks.map((r) => (
+        <span key={r.key} className={`risk-item ${r.tone}`}><Icon name="alert" size={14} /> {r.text}</span>
+      ))}
+    </section>
+  )
+}
+
+/** Planned versus consumed budget, and the expense log. Only admins and the project's manager get a budget. */
+function BudgetPanel({ project, onAdd, onVoid }) {
+  const [showVoided, setShowVoided] = useState(false)
+  const { budget } = project
+  const expenses = project.expenses ?? []
+  const voided = expenses.filter((e) => !e.active)
+  const shown = expenses.filter((e) => e.active || showVoided)
+  const planned = budget.plannedBudget
+  const pct = (amount) => (planned > 0 ? Math.min(100, (amount / planned) * 100) : 0)
+  const over = planned > 0 && budget.spentToDate > planned
+  const forecastOver = planned > 0 && budget.forecastTotal > planned
+
+  return (
+    <section className="panel budget-panel">
+      <div className="panel-header">
+        <div><h2>Budget</h2><p>Labour (hours worked × hourly rate) plus logged expenses</p></div>
+        {onAdd && <button className="text-button" onClick={onAdd}>Log expense</button>}
+      </div>
+
+      <div className="budget-figures">
+        <div><small>Planned</small><strong>{planned > 0 ? formatMoney(planned) : 'Not set'}</strong></div>
+        <div><small>Spent to date</small><strong className={over ? 'danger-text' : ''}>{formatMoney(budget.spentToDate)}</strong>
+          <span className="summary-note">{budget.percentUsed != null ? `${budget.percentUsed}% of budget` : 'No budget to compare'}</span></div>
+        <div><small>Labour</small><strong>{formatMoney(budget.labourToDate)}</strong></div>
+        <div><small>Expenses</small><strong>{formatMoney(budget.expensesToDate)}</strong></div>
+        <div><small>Forecast at finish</small><strong className={forecastOver ? 'warning-text' : ''}>{formatMoney(budget.forecastTotal)}</strong>
+          <span className="summary-note">{planned > 0 ? (budget.remaining >= 0 ? `${formatMoney(budget.remaining)} left` : `${formatMoney(-budget.remaining)} over`) : ''}</span></div>
+      </div>
+
+      {planned > 0 && (
+        <div className={`budget-bar ${over ? 'over' : forecastOver ? 'forecast-over' : ''}`} aria-hidden="true">
+          <i className="spent" style={{ width: `${pct(budget.spentToDate)}%` }} />
+          <i className="forecast" style={{ width: `${Math.max(0, pct(budget.forecastTotal) - pct(budget.spentToDate))}%` }} />
+        </div>
+      )}
+
+      <h3 className="budget-subhead">Expenses</h3>
+      {shown.map((e) => (
+        <div key={e.id} className={`expense-row ${e.active ? '' : 'voided'}`}>
+          <span className="cell-stack"><strong>{e.description}</strong>
+            <small>{formatDate(e.spentOn)}{e.active ? '' : ` · voided${e.voidReason ? `: ${e.voidReason}` : ''}`}</small></span>
+          <strong className="expense-amount">{formatMoney(e.amount)}</strong>
+          {onVoid && e.active ? <button className="text-button danger-text" onClick={() => onVoid(e)}>Void</button> : <span />}
+        </div>
+      ))}
+      {expenses.filter((e) => e.active).length === 0 && (
+        <p className="muted">{onAdd ? 'No expenses yet. Log licences, hardware, travel and other non-labour costs here.' : 'No expenses logged.'}</p>
+      )}
+      {voided.length > 0 && (
+        <button className="view-all" onClick={() => setShowVoided(!showVoided)}>
+          {showVoided ? 'Hide' : 'Show'} {plural(voided.length, 'voided expense')}
+        </button>
+      )}
+    </section>
   )
 }
 
