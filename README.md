@@ -1,113 +1,75 @@
-# Coding Workshop
+# Planeo
 
-The goal of this coding workshop is to enable and assess the hands-on skills
-of participants through development of a practical technical solution that
-solves a theoretical business problem.
+A project and team-tracking web app. Managers create projects, set milestones,
+and assign people with weekly hours. Everyone can see what they're working on,
+what's due soon, and what changed recently.
 
-## Getting Started
+<!-- Add screenshots here, e.g.:
+![Dashboard](docs/screenshots/dashboard.png)
+-->
 
-Navigate to [Coding Workshop - Main Guide](./docs/README.md) to get started.
+## Features
 
-## Coding Workshop Example
+- **Sign-in and role-based access.** Admin, Manager, and Employee roles, enforced on the backend
+- **Projects.** Create, edit, archive, and restore projects, each with its own detail view
+- **Milestones.** Track due dates and status, with reminders for upcoming deadlines
+- **People and assignments.** Assign team members to projects and track weekly hours
+- **Activity log.** An audit trail of who changed what
+- **Notifications, search, and filters** on every page
+- **Responsive layout** for desktop and mobile
 
-Coding workshop organizer(s) will provide instructions to follow by email. Here
-below is a real example of requirements and expectations for participant(s):
+## Tech stack
 
-### Requirements: Business Problem
+| Layer | Technology |
+| --- | --- |
+| Frontend | React 19, Vite, plain CSS |
+| Backend | Java 21 on AWS Lambda (Gson, JDBC) |
+| Database | PostgreSQL (Amazon RDS) |
+| Infrastructure | Terraform: S3, CloudFront, Lambda, RDS |
 
-Our company ACME Inc. is going through a massive organizational transformation
-to become a more data-driven organization. Information about teams structure
-and performance is currently scattered across multiple systems, making it
-difficult to get a comprehensive view of team dynamics and achievements.
+### Backend layout
 
-We are struggling to answer simple questions like:
+```
+backend/javaCode/src/main/java/com/tracker/
+├── controller/   # request routing and endpoint handlers
+├── security/     # password hashing, tokens, access policy
+├── repository/   # SQL access per entity
+├── model/        # domain types
+└── dto/          # request/response shapes
+```
 
-* Who are the members of each team?
-* Where are the teams located?
-* What are the key achievements of each team on a monthly basis?
-* How many teams have team leader not co-located with team members?
-* How many teams have team leader as a non-direct staff?
-* How many teams have non-direct staff to employees ratio above 20%?
-* How many teams are reporting to an organization leader?
+## Running locally
 
-### Requirements: Technical Solution
+### Frontend only (fake data, no backend needed)
 
-As part of this transformation, we are looking to build a centralized team
-management tool that will allow us to track team members, team locations,
-monthly team achievements, as well as individual-level and team-level metadata.
-Initial focus is to provide a self-service capability without any integrations
-with other tools such as Employee Directory, Project Tracking, or Performance
-Management.
+```bash
+cd frontend
+npm install
+echo "VITE_USE_FAKE_DATA=true" > .env.development.local
+npm run dev
+```
 
-The technical solution involves developing a stand-alone web application using
-modern technologies. The application will have the following features:
+Sign in with any demo user from
+[`fakeData.js`](frontend/src/services/fake/fakeData.js), for example
+`avery@example.com` / `password123`.
 
-* User authentication and authorization
-* Role-based access control
-* CRUD operations for individuals, teams, achievements and metadata
-* Search and filter functionality
-* Responsive design for mobile and desktop usage
+### Full stack
 
-### Requirements: Technology Stack
+```bash
+cd backend/javaCode && mvn clean package
+```
 
-The following technologies are required to build the application:
+Deployment uses the Terraform config in [`infra/`](infra/) and the scripts in
+[`bin/`](bin/). See [`infra/README.md`](infra/README.md) for details.
 
-* Frontend: HTML, CSS, React.js with React Responsive and Material UI Components
-* Backend: Python
-* Database: PostgreSQL
+## Credits
 
-The following technologies are good to know, as they are used to manage and
-deploy code:
-
-* Version Control: Git, GitHub
-* Infrastructure: Terraform
-* Deployment Mode: Shell Scripts
-* Deployment Target: AWS Serverless (e.g. S3, CloudFront, Lambda, RDS)
-
-### Expectations: Value-Based Outcomes
-
-By the end of the workshop, participants will have developed a functional
-web application that meets the requirements outlined above. The application
-will be deployed to a cloud environment and accessible via a web browser.
-Participants will also gain hands-on experience with modern web development
-technologies and best practices.
-
-## Contributing
-
-See the [CONTRIBUTING](./CONTRIBUTING.md) resource for more details.
+Built on the [Citi coding workshop](https://github.com/citi/coding-workshop-participant)
+starter template, which provided the infrastructure scaffolding and deployment
+scripts. The original workshop brief is in [`docs/WORKSHOP.md`](docs/WORKSHOP.md).
+The application code (frontend pages and components, Java backend, and infra
+fixes) is my own work.
 
 ## License
 
-This library is licensed under the MIT-0 License.
-See the [LICENSE](./LICENSE) resource for more details.
-
-## Roadmap
-
-See the
-[open issues](https://github.com/citi/coding-workshop-participant/issues)
-for a list of proposed roadmap features (and known issues).
-
-## Security
-
-See the
-[Security Issue Notifications](./CONTRIBUTING.md#security-issue-notifications)
-resource for more details.
-
-## Authors
-
-The following people have contributed to this workshop:
-
-* Colin Heilman - [@heilmancs](https://github.com/heilmancs)
-* Eugene Istrati - [@eistrati](https://github.com/eistrati)
-* Isaiah Cornelius Smith - [@corneliusmith](https://github.com/corneliusmith)
-* Juan Arevalo - [@jparevalo27](https://github.com/jparevalo27)
-* Michael Annucci - [@michael-annucci](https://github.com/michael-annucci)
-
-## Feedback
-
-We'd love to hear your feedback! Please:
-
-* ⭐ Star the repository if you find it helpful
-* 🐛 Report issues on GitHub
-* 💡 Suggest improvements
-* 📝 Share your experience
+Apache 2.0. See [LICENSE](LICENSE).

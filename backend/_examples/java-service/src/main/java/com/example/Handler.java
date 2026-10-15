@@ -141,7 +141,7 @@ public class Handler implements RequestHandler<Map<String, Object>, Map<String, 
             try {
                 return service.getVersion();
             } finally {
-                service.close();
+                //service.close();
             }
         } catch (Exception e) {
             return "unknown";

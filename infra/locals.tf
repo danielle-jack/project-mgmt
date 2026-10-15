@@ -33,8 +33,14 @@ locals {
       path    = abspath(format("%s/../backend/%s/target", path.module, name))
       mvn_cmd = [
         format("cd %s", abspath(format("%s/../backend/%s", path.module, name))),
+        # If JAVA_HOME is missing or wrong in the terminal running the deploy, find the JDK from javac.
+        "if [ ! -x \"$JAVA_HOME/bin/javac\" ]; then export JAVA_HOME=\"$(dirname \"$(dirname \"$(readlink -f \"$(command -v javac)\")\")\")\"; fi",
         "mvn clean package -DskipTests",
-        format("find ./target ! -name '%s*.jar' -delete", name),
+        # -mindepth 1: clean out target/ but don't try to delete target/ itself (it still holds the jar)
+        format("find ./target -mindepth 1 ! -name '%s*.jar' -delete", name),
+        # Lambda's Java runtime only loads jars from lib/, not from the top of the package
+        "mkdir -p ./target/lib",
+        format("mv ./target/%s*.jar ./target/lib/", name),
       ]
     }
   }
